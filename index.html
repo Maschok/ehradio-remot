@@ -78,6 +78,10 @@
     border-radius:1px;
   }
   body.connected .vu span{ animation:vu 1.1s ease-in-out infinite; opacity:1; }
+  body.unreachable .dial{ border-color:var(--danger); }
+  body.unreachable .dial::after{ background:var(--danger); box-shadow:0 0 6px var(--danger); }
+  body.unreachable .vu span{ background:var(--danger); opacity:.5; animation:none; }
+  body.unreachable #ipLabel{ color:var(--danger); }
   .vu span:nth-child(1){ height:40%; animation-delay:.0s; }
   .vu span:nth-child(2){ height:80%; animation-delay:.12s; }
   .vu span:nth-child(3){ height:55%; animation-delay:.24s; }
@@ -148,12 +152,6 @@
     overflow:hidden; position:relative; min-height:0;
     display:flex; flex-direction:column;
   }
-  .faceplate .screen-label{
-    display:flex; align-items:center; justify-content:space-between;
-    padding:8px 12px; font-size:10.5px; color:var(--moss);
-    border-bottom:1px dashed rgba(74,103,65,.4);
-  }
-  .faceplate .screen-label b{ color:var(--amber); font-weight:600; }
   .webui-frame{
     flex:1; width:100%; border:none; background:#fff;
   }
@@ -166,11 +164,11 @@
     display:flex; gap:10px; padding:0 16px calc(14px + env(safe-area-inset-bottom,0px));
   }
   .bottom-bar button{
-    flex:1; padding:12px; border-radius:var(--radius);
+    flex:1; min-height:48px; padding:12px; border-radius:var(--radius);
     background:var(--pcb-green-2); color:var(--off-white);
-    border:1px solid rgba(232,228,217,.15); font-size:13px; cursor:pointer;
+    border:1px solid rgba(232,228,217,.15); font-size:13.5px; cursor:pointer;
   }
-  .bottom-bar button.warn{ color:var(--danger); border-color:rgba(196,70,43,.4); }
+  .bottom-bar button:active{ background:rgba(255,176,0,.12); border-color:rgba(255,176,0,.3); }
 
   ::selection{ background:var(--amber); color:#1a1204; }
 </style>
@@ -203,10 +201,6 @@
   <!-- الشاشة الرئيسية -->
   <section id="main">
     <div class="faceplate">
-      <div class="screen-label mono">
-        <span>WEBUI</span>
-        <b id="urlLabel">—</b>
-      </div>
       <div id="frameHolder" style="flex:1; display:flex; min-height:0;">
         <iframe class="webui-frame" id="webuiFrame" title="ehRadio WebUI"></iframe>
       </div>
@@ -214,7 +208,7 @@
     <div class="bottom-bar">
       <button id="reloadBtn">⟳ تحديث</button>
       <button id="openTabBtn">↗ فتح في تبويب</button>
-      <button class="warn" id="forgetBtn">تغيير الجهاز</button>
+      <button id="forgetBtn">تغيير الجهاز</button>
     </div>
   </section>
 
@@ -224,7 +218,6 @@
   const mainEl = document.getElementById("main");
   const ipInput = document.getElementById("ipInput");
   const ipLabel = document.getElementById("ipLabel");
-  const urlLabel = document.getElementById("urlLabel");
   const frame = document.getElementById("webuiFrame");
   const frameHolder = document.getElementById("frameHolder");
 
@@ -241,8 +234,8 @@
     document.body.classList.add("connected");
     const host = new URL(url).host;
     ipLabel.textContent = "متصل بـ " + host;
-    urlLabel.textContent = host;
     loadFrame(url);
+    startHealthCheck(url);
   }
 
   function loadFrame(url){
@@ -264,8 +257,9 @@
 
   function showSetup(){
     mainEl.classList.remove("active");
-    document.body.classList.remove("connected");
+    document.body.classList.remove("connected", "unreachable");
     setupEl.style.display = "flex";
+    stopHealthCheck();
   }
 
   document.getElementById("connectBtn").addEventListener("click", () => {
@@ -300,6 +294,44 @@
     const url = localStorage.getItem(STORAGE_KEY);
     if(url) window.open(url, "_blank");
   });
+
+  // ===== فحص اتصال دوري حقيقي بالراديو =====
+  let healthTimer = null;
+
+  async function checkHealth(url){
+    try{
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 4000);
+      // وضع no-cors: لا نقرأ الرد (السيرفر على شبكة محلية غالبًا لا يدعم CORS)،
+      // لكن رفض الوعد (reject) يعني فعليًا أن الجهاز غير قابل للوصول.
+      await fetch(url, { mode: "no-cors", cache: "no-store", signal: ctrl.signal });
+      clearTimeout(t);
+      setReachable(true);
+    }catch(e){
+      setReachable(false);
+    }
+  }
+
+  function setReachable(ok){
+    const host = (localStorage.getItem(STORAGE_KEY) || "").replace(/^https?:\/\//i, "");
+    if(ok){
+      document.body.classList.remove("unreachable");
+      ipLabel.textContent = "متصل بـ " + host;
+    }else{
+      document.body.classList.add("unreachable");
+      ipLabel.textContent = "لا يستجيب: " + host;
+    }
+  }
+
+  function startHealthCheck(url){
+    stopHealthCheck();
+    checkHealth(url);
+    healthTimer = setInterval(() => checkHealth(url), 8000);
+  }
+
+  function stopHealthCheck(){
+    if(healthTimer){ clearInterval(healthTimer); healthTimer = null; }
+  }
 
   // بدء التشغيل
   (function init(){
