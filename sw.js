@@ -1,8 +1,11 @@
 // ehRadio Remote — service worker
 // يخزّن هيكل التطبيق فقط (الأيقونات، الإعدادات، الغلاف) — لا يخزّن محتوى الراديو نفسه،
 // لأن التحكم الفعلي يحتاج اتصالًا حيًا بالجهاز على الشبكة المحلية.
+//
+// الاستراتيجية: network-first — يحاول جلب أحدث نسخة من الإنترنت أولًا، ولا يستخدم
+// النسخة المخزّنة إلا إذا تعذّر الاتصال (بدون إنترنت). هذا يضمن ظهور أي تحديث فورًا.
 
-const CACHE_NAME = "ehradio-shell-v1";
+const CACHE_NAME = "ehradio-shell-v2";
 const SHELL_FILES = [
   "./index.html",
   "./manifest.json",
@@ -32,15 +35,12 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin) return;
 
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      return (
-        cached ||
-        fetch(event.request).then((res) => {
-          const resClone = res.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, resClone));
-          return res;
-        }).catch(() => cached)
-      );
-    })
+    fetch(event.request)
+      .then((res) => {
+        const resClone = res.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, resClone));
+        return res;
+      })
+      .catch(() => caches.match(event.request))
   );
 });
